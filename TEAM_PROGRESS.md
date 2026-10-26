@@ -55,3 +55,30 @@ flag is only a geometric clue; it does not by itself label a frame as dead ball.
 The full tactical audit completed with contiguous frame IDs and all 199,319 frame rows. Its outputs
 were written to the local temporary directory; no feature archive or match-derived summary was
 added to the repository. The audit uses tracking metadata only and does not load ground truth.
+
+## Milestone 4: possession continuity decoder
+
+`starter/possession_decoder.py` converts the team-distance evidence into a signed score, then uses
+a two-state Viterbi decoder independently on each half. A fixed transition cost prevents weak or
+brief opposing evidence from splitting a spell; missing-ball frames have neutral emissions, so the
+decoder carries the best-supported team through short and long tracking gaps. The score combines
+the home/away distance margin with absolute ball proximity, down-weighting frames where both teams
+are far away. The default change penalty is conservative: brief or weak contrary evidence must
+accumulate before a team switch. Scales and penalty are exposed for synthetic and sensitivity
+checks, never for tuning against the public answer key.
+
+The current candidate labels only `H`, `A`, and `X`; this milestone does not infer `D`. Run it after
+the feature audit. The CSV, evidence archive, and diagnostics stay outside the repository:
+
+```powershell
+$decoderOut = Join-Path $env:TEMP "mtah2027-possession-decoder"
+python starter\possession_decoder.py --out $decoderOut
+python evaluation\validate_submission.py (Join-Path $decoderOut "possession_candidate.csv")
+```
+
+The validator checks only the submission format. Do not run the scorer on the public labels to
+select decoder settings.
+
+The synthetic checks passed for a sustained handover, a one-frame opposing spike, and a neutral
+missing-ball gap. The full tactical candidate also passed the official format validator. No public
+answer-key score was used; the output is an H/A continuity candidate, not the final submission.
