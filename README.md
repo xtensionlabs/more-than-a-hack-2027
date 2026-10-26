@@ -134,6 +134,7 @@ evaluation/
   results/                  the four baselines; put your submissions here
 starter/
   baseline.py               the reference baseline, numpy only
+  feature_audit.py          label-free, team-level tracking features and diagnostics
   load_atd.py               read the tracking and line it up with video frames
   load_smart_tagging.py     read the tactical tagging as video-frame intervals
   load_homography.py        read the homography; project pitch <-> pixels
