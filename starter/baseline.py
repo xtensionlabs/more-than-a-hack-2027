@@ -221,6 +221,10 @@ if __name__ == '__main__':
         counts = {label: int(np.sum(labels == label)) for label in LABELS}
         print("{:<20} window +/-{:<4} H {:>6}  A {:>6}  D {:>6}".format(
             name, window, counts["H"], counts["A"], counts["D"]))
-        print("{:<20} -> {}".format("", os.path.relpath(path, ROOT)))
+        try:
+            display_path = os.path.relpath(path, ROOT)
+        except ValueError:
+            display_path = os.path.abspath(path)
+        print("{:<20} -> {}".format("", display_path))
 
     print("\nNow score them:  python evaluation/run_evaluation.py")

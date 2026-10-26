@@ -142,6 +142,7 @@ starter/
   02_tracking_atd.ipynb     guided tour of the tracking data, with plots
   03_first_submission.ipynb data in, scored submission out — start here
 data/                       unpack the downloaded match assets here. Empty in a fresh clone
+TEAM_PROGRESS.md            team runbook for data handling and baseline reproduction
 ```
 
 The scorer you run locally is the scorer that decides the competition. If it scores on your

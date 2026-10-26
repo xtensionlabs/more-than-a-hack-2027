@@ -63,5 +63,5 @@ venv/
 env/
 .DS_Store
 
-# large raw datasets (zipped copies are committed)
-Challenge-Datasets/*/BAR-ATH_*_atd.txt
+# Match assets used locally are not part of the source repository.
+/Challenge-Datasets/
