@@ -62,3 +62,6 @@ __pycache__/
 venv/
 env/
 .DS_Store
+
+# large raw datasets (zipped copies are committed)
+Challenge-Datasets/*/BAR-ATH_*_atd.txt
