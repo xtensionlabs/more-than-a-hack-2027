@@ -35,9 +35,10 @@ The submission index is the tactical video frame: ATD `frame_id` is one-based an
 ## Milestone 3: team-level feature audit
 
 `starter/feature_audit.py` creates frame-aligned, team-level evidence without reading possession
-labels. It records ball visibility and pitch bounds, ball speed, visible track-slot counts by team,
-each team's nearest-player distance and speed, and the away-minus-home distance margin. Track slots
-are aggregated by their metadata team; the audit does not treat them as persistent player IDs.
+labels. It records ball visibility and pitch bounds, raw and position-derived ball movement,
+visible track-slot counts by team, team movement summaries, each team's nearest-player distance and
+speed, and the away-minus-home distance margin. Track slots are aggregated by their metadata team;
+the audit does not treat them as persistent player IDs.
 
 Run the audit from the repository root. The compressed arrays and aggregate JSON are written to a
 temporary folder outside the repository and should remain local:
@@ -82,3 +83,38 @@ select decoder settings.
 The synthetic checks passed for a sustained handover, a one-frame opposing spike, and a neutral
 missing-ball gap. The full tactical candidate also passed the official format validator. No public
 answer-key score was used; the output is an H/A continuity candidate, not the final submission.
+
+## Milestone 5: dead-ball and restart evidence
+
+`starter/dead_ball_decoder.py` combines the possession evidence with physical stoppage cues in a
+three-state Viterbi decoder. It uses persistent out-of-pitch observations, prolonged low ball
+movement, nearby-player distance, and team movement. Missing ball observations remain neutral.
+Smart Tagging set-piece intervals are a weak context only; some span tens of seconds. A tag can
+reinforce a corroborated slow-ball cue, but a tag by itself cannot emit `D` or copy its interval
+into the submission.
+
+The feature audit smooths pitch positions before estimating ball displacement because the raw ball
+speed field is often absent. The stoppage detector requires repeated low-speed evidence and applies
+a transition cost so brief tracking noise does not fragment possession spells. The default dead-ball
+transition cost was checked with unlabeled sensitivity runs; it rejects single-frame dead-ball
+artifacts. No answer-key scores were used.
+
+Regenerate the extended features, decode with the Smart Tagging file, and validate the resulting
+candidate:
+
+```powershell
+$env:MTAH_DATA_DIR = "D:\path\to\Challenge-Datasets"
+$featureOut = Join-Path $env:TEMP "mtah2027-feature-audit"
+$deadOut = Join-Path $env:TEMP "mtah2027-dead-ball-decoder"
+python starter\feature_audit.py --out $featureOut
+python starter\dead_ball_decoder.py --features (Join-Path $featureOut "tracking_features.npz") --data-dir $env:MTAH_DATA_DIR --out $deadOut
+python evaluation\validate_submission.py (Join-Path $deadOut "possession_with_dead_ball.csv")
+```
+
+This is still a candidate: the physical cues and transition costs need independent validation, and
+the final model must be checked for both stoppage quality and spell fragmentation without tuning
+on the public answer key.
+
+Synthetic checks passed for tag-only input, missing-ball gaps, isolated out-of-pitch observations,
+and a sustained stoppage. The full tactical candidate passed format validation; its predictions and
+diagnostics remain in the local temporary output folder. No public answer-key score was used.

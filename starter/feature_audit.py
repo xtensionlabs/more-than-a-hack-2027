@@ -57,9 +57,14 @@ def empty_features(n_frames):
         "ball_x_norm": np.full(n_frames, np.nan, dtype=np.float32),
         "ball_y_norm": np.full(n_frames, np.nan, dtype=np.float32),
         "ball_speed_mps": np.full(n_frames, np.nan, dtype=np.float32),
+        "ball_displacement_speed_mps": np.full(n_frames, np.nan, dtype=np.float32),
         "ball_outside_pitch": np.zeros(n_frames, dtype=np.bool_),
         "home_track_count": np.zeros(n_frames, dtype=np.int16),
         "away_track_count": np.zeros(n_frames, dtype=np.int16),
+        "home_player_speed_median_mps": np.full(n_frames, np.nan, dtype=np.float32),
+        "away_player_speed_median_mps": np.full(n_frames, np.nan, dtype=np.float32),
+        "all_player_speed_median_mps": np.full(n_frames, np.nan, dtype=np.float32),
+        "player_speed_fraction_below_0_5_mps": np.full(n_frames, np.nan, dtype=np.float32),
         "home_nearest_distance_m": np.full(n_frames, np.nan, dtype=np.float32),
         "away_nearest_distance_m": np.full(n_frames, np.nan, dtype=np.float32),
         "home_nearest_speed_mps": np.full(n_frames, np.nan, dtype=np.float32),
@@ -67,6 +72,45 @@ def empty_features(n_frames):
         "distance_margin_m": np.full(n_frames, np.nan, dtype=np.float32),
         "nearest_team": np.full(n_frames, -1, dtype=np.int8),
     }
+
+
+def centered_median(values, window=11, min_observations=4):
+    """Smooth a noisy position signal while ignoring missing frames."""
+    radius = window // 2
+    padded = np.pad(np.asarray(values, dtype=np.float32), (radius, radius),
+                    mode="constant", constant_values=np.nan)
+    if hasattr(np.lib.stride_tricks, "sliding_window_view"):
+        windows = np.lib.stride_tricks.sliding_window_view(padded, window)
+    else:
+        stride = padded.strides[0]
+        windows = np.lib.stride_tricks.as_strided(
+            padded, shape=(len(values), window), strides=(stride, stride))
+    counts = np.sum(np.isfinite(windows), axis=1)
+    smoothed = np.full(len(values), np.nan, dtype=np.float32)
+    valid = counts >= min_observations
+    if np.any(valid):
+        smoothed[valid] = np.nanmedian(windows[valid], axis=1)
+    return smoothed
+
+
+def ball_displacement_speed(features, pitch, fps):
+    """Estimate ball movement from smoothed pitch positions when raw speed is absent."""
+    length, width = pitch
+    ball_seen = features["ball_seen"]
+    x_m = features["ball_x_norm"] * length
+    y_m = features["ball_y_norm"] * width
+    smooth_x = centered_median(np.where(ball_seen, x_m, np.nan))
+    smooth_y = centered_median(np.where(ball_seen, y_m, np.nan))
+
+    lag = 5
+    speed = np.full(len(ball_seen), np.nan, dtype=np.float32)
+    if len(ball_seen) > lag * 2:
+        dx = smooth_x[lag * 2:] - smooth_x[:-lag * 2]
+        dy = smooth_y[lag * 2:] - smooth_y[:-lag * 2]
+        valid = np.isfinite(dx) & np.isfinite(dy)
+        middle = speed[lag:-lag]
+        middle[valid] = np.hypot(dx[valid], dy[valid]) / (2.0 * lag / fps)
+    return speed
 
 
 def extract_features(raw_path, team_of_track, n_frames, pitch):
@@ -113,6 +157,8 @@ def extract_features(raw_path, team_of_track, n_frames, pitch):
                 ball_x_m = ball_y_m = None
 
             track_counts = [0, 0]
+            team_speeds = [[], []]
+            all_speeds = []
             nearest_squared = [float("inf"), float("inf")]
             nearest_speed = [float("nan"), float("nan")]
 
@@ -124,6 +170,9 @@ def extract_features(raw_path, team_of_track, n_frames, pitch):
                 player_x, player_y, player_speed = observation
                 team = int(team_of_track[slot])
                 track_counts[team] += 1
+                if math.isfinite(player_speed):
+                    team_speeds[team].append(player_speed)
+                    all_speeds.append(player_speed)
                 if ball_x_m is None:
                     continue
 
@@ -136,6 +185,14 @@ def extract_features(raw_path, team_of_track, n_frames, pitch):
 
             features["home_track_count"][expected_frame] = track_counts[HOME]
             features["away_track_count"][expected_frame] = track_counts[AWAY]
+            for team, name in ((HOME, "home"), (AWAY, "away")):
+                if team_speeds[team]:
+                    features[name + "_player_speed_median_mps"][expected_frame] = np.median(
+                        team_speeds[team])
+            if all_speeds:
+                features["all_player_speed_median_mps"][expected_frame] = np.median(all_speeds)
+                features["player_speed_fraction_below_0_5_mps"][expected_frame] = np.mean(
+                    np.asarray(all_speeds) < 0.5)
 
             if ball_x_m is not None:
                 for team, name in ((HOME, "home"), (AWAY, "away")):
@@ -157,6 +214,8 @@ def extract_features(raw_path, team_of_track, n_frames, pitch):
 
     if expected_frame != n_frames:
         raise ValueError("ATD has {} frames; expected {}".format(expected_frame, n_frames))
+    features["ball_displacement_speed_mps"] = ball_displacement_speed(
+        features, pitch, GAMES[GAME]["fps"])
     return features
 
 
@@ -212,6 +271,12 @@ def build_summary(features, game=GAME):
             "home": distribution(features["home_nearest_distance_m"], graded_ball_seen),
             "away": distribution(features["away_nearest_distance_m"], graded_ball_seen),
         },
+        "ball_displacement_speed_mps_on_graded_frames": distribution(
+            features["ball_displacement_speed_mps"], graded_ball_seen),
+        "all_player_speed_median_mps_on_graded_frames": distribution(
+            features["all_player_speed_median_mps"], graded),
+        "player_speed_fraction_below_0_5_mps_on_graded_frames": distribution(
+            features["player_speed_fraction_below_0_5_mps"], graded),
         "distance_margin_m_away_minus_home": distribution(
             features["distance_margin_m"], both_teams_nearest),
         "nearest_team_on_ball_seen_graded": {
