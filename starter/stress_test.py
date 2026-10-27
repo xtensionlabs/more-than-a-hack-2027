@@ -20,6 +20,7 @@ from games import GAME, GAMES, half_video_blocks
 from starter.dead_ball_decoder import (
     decode as decode_with_dead_ball,
     load_features,
+    rolling_count_by_half,
     stoppage_evidence,
     viterbi_three_state,
 )
@@ -62,7 +63,7 @@ def synthetic_checks():
     if not np.all(viterbi_decode(gap) == HOME):
         raise AssertionError("neutral tracking gap changed the owner")
 
-    n_frames = 100
+    n_frames = 150
     features = {
         "ball_seen": np.ones(n_frames, dtype=np.bool_),
         "ball_displacement_speed_mps": np.full(n_frames, 5.0, dtype=np.float32),
@@ -71,6 +72,8 @@ def synthetic_checks():
         "away_nearest_distance_m": np.full(n_frames, 8.0, dtype=np.float32),
         "all_player_speed_median_mps": np.full(n_frames, 1.2, dtype=np.float32),
         "player_speed_fraction_below_0_5_mps": np.zeros(n_frames, dtype=np.float32),
+        "home_track_count": np.full(n_frames, 11, dtype=np.int16),
+        "away_track_count": np.full(n_frames, 11, dtype=np.int16),
     }
     context = np.ones(n_frames, dtype=np.bool_)
     dead_score, _, _ = stoppage_evidence(features, context)
@@ -80,9 +83,9 @@ def synthetic_checks():
     features["ball_seen"][:] = False
     features["ball_displacement_speed_mps"][:] = np.nan
     dead_score, _, _ = stoppage_evidence(features, context)
-    if np.any(dead_score) or np.any(viterbi_three_state(
+    if np.any(dead_score > 0.0) or np.any(viterbi_three_state(
             np.full(n_frames, 0.8), dead_score) == DEAD):
-        raise AssertionError("missing ball observations caused a dead-ball label")
+        raise AssertionError("active player movement in a ball gap caused a dead-ball label")
 
     features["ball_seen"][:] = True
     features["ball_displacement_speed_mps"][:] = 5.0
@@ -104,14 +107,40 @@ def synthetic_checks():
     if not np.any(states[30:60] == DEAD):
         raise AssertionError("corroborated sustained stoppage was missed")
 
+    features["ball_seen"][:] = False
+    features["ball_displacement_speed_mps"][:] = np.nan
+    features["all_player_speed_median_mps"][:] = 1.2
+    features["player_speed_fraction_below_0_5_mps"][:] = 0.0
+    features["all_player_speed_median_mps"][45:125] = 0.4
+    features["player_speed_fraction_below_0_5_mps"][45:125] = 0.8
+    dead_score, _, _ = stoppage_evidence(
+        features, np.zeros(n_frames, dtype=np.bool_))
+    states = viterbi_three_state(np.full(n_frames, 0.8), dead_score)
+    if not np.all(states[70:110] == DEAD):
+        raise AssertionError("sustained player stop during a ball gap was missed")
+    if np.any(states[:30] == DEAD):
+        raise AssertionError("player stoppage evidence leaked outside its sustained interval")
+    if np.any(states[140:150] == DEAD):
+        raise AssertionError("player activity failed to end a stoppage during a ball gap")
+
+    first_graded = half_video_blocks(GAME)[0][1]
+    boundary_candidate = np.zeros(GAMES[GAME]["n_video_frames"], dtype=np.bool_)
+    boundary_candidate[first_graded - 35:first_graded] = True
+    boundary_counts = rolling_count_by_half(boundary_candidate, 50, GAME)
+    if np.any(boundary_counts[first_graded:first_graded + 10]):
+        raise AssertionError("pre-match stillness leaked into the first scored half")
+
     return {
         "sustained_handover": "pass",
         "one_frame_opponent_spike": "pass",
         "neutral_ball_gap": "pass",
         "tag_only_is_neutral": "pass",
-        "missing_ball_is_neutral": "pass",
+        "active_ball_gap_does_not_trigger_dead_ball": "pass",
         "isolated_out_of_pitch_is_rejected": "pass",
         "corroborated_sustained_stop_is_detected": "pass",
+        "sustained_player_stop_during_ball_gap": "pass",
+        "player_activity_ends_ball_gap_stoppage": "pass",
+        "pre_match_player_stop_does_not_leak_into_half": "pass",
     }
 
 

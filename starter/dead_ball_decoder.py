@@ -1,8 +1,8 @@
 """Add a conservative dead-ball state to the possession sequence candidate.
 
 Dead-ball evidence comes from persistent out-of-pitch tracking, sustained low ball movement,
-player movement, and weak corroboration from automatic set-piece tags. A tag interval alone never
-labels a frame as dead. Outputs are written outside the repository by default.
+player movement during ball gaps, and weak corroboration from automatic set-piece tags. A tag
+interval alone never labels a frame as dead. Outputs are written outside the repository by default.
 """
 
 import argparse
@@ -25,6 +25,14 @@ from starter.possession_decoder import signed_evidence
 
 HOME, AWAY, DEAD = 0, 1, 2
 STATE_LABELS = np.array(["H", "A", "D"])
+PLAYER_STOP_WINDOW_FRAMES = 50
+MINIMUM_PLAYER_STOP_FRAMES = 35
+PLAYER_ACTIVITY_WINDOW_FRAMES = 15
+MINIMUM_PLAYER_ACTIVITY_FRAMES = 10
+MINIMUM_VISIBLE_PER_TEAM = 6
+PLAYER_STOP_SCORE = 0.9
+SET_PIECE_STOP_BONUS = 0.3
+PLAYER_RESTART_SCORE = 0.75
 
 
 def rolling_count(mask, window):
@@ -33,6 +41,19 @@ def rolling_count(mask, window):
     after = window - 1 - before
     padded = np.pad(values, (before, after))
     return np.convolve(padded, np.ones(window, dtype=np.int16), mode="valid")
+
+
+def rolling_count_by_half(mask, window, game=None):
+    """Count a frame-level cue without letting evidence cross half boundaries."""
+    if game is None:
+        return rolling_count(mask, window)
+    counts = np.zeros(len(mask), dtype=np.int16)
+    for _, first, last in half_video_blocks(game):
+        first = max(0, first)
+        last = min(len(mask) - 1, last)
+        if first <= last:
+            counts[first:last + 1] = rolling_count(mask[first:last + 1], window)
+    return counts
 
 
 def restart_context(events, n_frames):
@@ -53,8 +74,18 @@ def restart_context(events, n_frames):
 def stoppage_evidence(features, set_piece_context, slow_speed_threshold=1.0,
                       slow_fraction_threshold=0.75, slow_window_frames=25,
                       minimum_slow_observations=8, close_distance_m=1.5,
-                      far_distance_m=3.0, fast_speed_threshold=3.0):
-    """Build a dead-ball score; missing ball observations contribute no dead-ball evidence."""
+                      far_distance_m=3.0, fast_speed_threshold=3.0,
+                      player_stop_window_frames=PLAYER_STOP_WINDOW_FRAMES,
+                      minimum_player_stop_frames=MINIMUM_PLAYER_STOP_FRAMES,
+                      player_activity_window_frames=PLAYER_ACTIVITY_WINDOW_FRAMES,
+                      minimum_player_activity_frames=MINIMUM_PLAYER_ACTIVITY_FRAMES,
+                      minimum_visible_per_team=MINIMUM_VISIBLE_PER_TEAM, game=None):
+    """Build dead-ball evidence from ball motion or sustained player inactivity.
+
+    A missing ball is not itself evidence for a stoppage. During a ball gap, sustained low team
+    motion and a high fraction of nearly stationary players can provide independent evidence;
+    a set-piece tag only adds weak support after that physical cue is already present.
+    """
     ball_seen = features["ball_seen"].astype(np.bool_, copy=False)
     ball_speed = features["ball_displacement_speed_mps"]
     valid_speed = ball_seen & np.isfinite(ball_speed)
@@ -91,9 +122,37 @@ def stoppage_evidence(features, set_piece_context, slow_speed_threshold=1.0,
 
     player_median = features["all_player_speed_median_mps"]
     player_stationary_fraction = features["player_speed_fraction_below_0_5_mps"]
+    home_track_count = features["home_track_count"]
+    away_track_count = features["away_track_count"]
     low_player_motion = np.isfinite(player_median) & (player_median <= 0.8)
     many_stationary_players = np.isfinite(player_stationary_fraction) & (
         player_stationary_fraction >= 0.45)
+    player_stop_candidate = (
+        ~ball_seen
+        & np.isfinite(player_median)
+        & (player_median <= 0.5)
+        & np.isfinite(player_stationary_fraction)
+        & (player_stationary_fraction >= 0.65)
+        & (home_track_count >= minimum_visible_per_team)
+        & (away_track_count >= minimum_visible_per_team)
+    )
+    player_stop_window_count = rolling_count_by_half(
+        player_stop_candidate, player_stop_window_frames, game)
+    sustained_player_stop = player_stop_candidate & (
+        player_stop_window_count >= minimum_player_stop_frames)
+    player_restart_candidate = (
+        ~ball_seen
+        & np.isfinite(player_median)
+        & (player_median >= 1.0)
+        & np.isfinite(player_stationary_fraction)
+        & (player_stationary_fraction <= 0.35)
+        & (home_track_count >= minimum_visible_per_team)
+        & (away_track_count >= minimum_visible_per_team)
+    )
+    player_restart_window_count = rolling_count_by_half(
+        player_restart_candidate, player_activity_window_frames, game)
+    sustained_player_restart = player_restart_candidate & (
+        player_restart_window_count >= minimum_player_activity_frames)
     fast_ball = valid_speed & (ball_speed >= fast_speed_threshold) & ~outside
 
     dead_score = np.zeros(len(ball_seen), dtype=np.float32)
@@ -108,6 +167,9 @@ def stoppage_evidence(features, set_piece_context, slow_speed_threshold=1.0,
     moving_players_at_exit = persistent_outside & np.isfinite(player_median) & (
         player_median >= 1.5)
     dead_score[moving_players_at_exit] += 0.2
+    dead_score[sustained_player_stop] += PLAYER_STOP_SCORE
+    dead_score[sustained_player_stop & set_piece_context] += SET_PIECE_STOP_BONUS
+    dead_score[sustained_player_restart] -= PLAYER_RESTART_SCORE
     np.clip(dead_score, -1.5, 2.5, out=dead_score)
 
     cue_counts = {
@@ -121,6 +183,11 @@ def stoppage_evidence(features, set_piece_context, slow_speed_threshold=1.0,
             persistent_slow & many_stationary_players)),
         "slow_near_a_player_suppressed": int(np.sum(persistent_slow & close_to_player)),
         "fast_ball_suppressed": int(np.sum(fast_ball)),
+        "sustained_player_stop_during_ball_gap": int(np.sum(sustained_player_stop)),
+        "player_stop_with_set_piece_context": int(np.sum(
+            sustained_player_stop & set_piece_context)),
+        "sustained_player_activity_during_ball_gap": int(np.sum(
+            sustained_player_restart)),
     }
     return dead_score, cue_counts, slow_fraction
 
@@ -194,7 +261,8 @@ def decode(features, events, game=GAME, handover_penalty=10.0,
     dead_score, cue_counts, slow_fraction = stoppage_evidence(
         features, set_piece_context,
         slow_speed_threshold=slow_speed_threshold,
-        slow_fraction_threshold=slow_fraction_threshold)
+        slow_fraction_threshold=slow_fraction_threshold,
+        game=game)
     owner_evidence = signed_evidence(features)
     labels = np.full(n_frames, "X", dtype="<U1")
     halves = []
@@ -224,6 +292,14 @@ def decode(features, events, game=GAME, handover_penalty=10.0,
             "dead_transition_penalty": dead_transition_penalty,
             "slow_speed_threshold_mps": slow_speed_threshold,
             "slow_fraction_threshold": slow_fraction_threshold,
+            "player_gap_stop_window_frames": PLAYER_STOP_WINDOW_FRAMES,
+            "minimum_player_stop_frames": MINIMUM_PLAYER_STOP_FRAMES,
+            "player_gap_activity_window_frames": PLAYER_ACTIVITY_WINDOW_FRAMES,
+            "minimum_player_activity_frames": MINIMUM_PLAYER_ACTIVITY_FRAMES,
+            "minimum_visible_players_per_team": MINIMUM_VISIBLE_PER_TEAM,
+            "player_gap_stop_score": PLAYER_STOP_SCORE,
+            "set_piece_stop_bonus": SET_PIECE_STOP_BONUS,
+            "player_gap_restart_score": PLAYER_RESTART_SCORE,
         },
         "halves": halves,
     }
@@ -237,7 +313,7 @@ def load_features(path):
         "frame", "ball_seen", "ball_x_norm", "ball_y_norm", "ball_outside_pitch",
         "home_nearest_distance_m", "away_nearest_distance_m",
         "ball_displacement_speed_mps", "all_player_speed_median_mps",
-        "player_speed_fraction_below_0_5_mps",
+        "player_speed_fraction_below_0_5_mps", "home_track_count", "away_track_count",
     )
     with np.load(path) as archive:
         missing = [name for name in required if name not in archive]

@@ -88,10 +88,10 @@ answer-key score was used; the output is an H/A continuity candidate, not the fi
 
 `starter/dead_ball_decoder.py` combines the possession evidence with physical stoppage cues in a
 three-state Viterbi decoder. It uses persistent out-of-pitch observations, prolonged low ball
-movement, nearby-player distance, and team movement. Missing ball observations remain neutral.
-Smart Tagging set-piece intervals are a weak context only; some span tens of seconds. A tag can
-reinforce a corroborated slow-ball cue, but a tag by itself cannot emit `D` or copy its interval
-into the submission.
+movement, nearby-player distance, and team movement. Ball absence alone remains neutral; milestone
+7 adds a sustained player-inactivity cue for such gaps. Smart Tagging set-piece intervals are a
+weak context only; some span tens of seconds. A tag can reinforce physical evidence, but a tag by
+itself cannot emit `D` or copy its interval into the submission.
 
 The feature audit smooths pitch positions before estimating ball displacement because the raw ball
 speed field is often absent. The stoppage detector requires repeated low-speed evidence and applies
@@ -146,3 +146,25 @@ in contiguous bursts of 25, 75, and 125 frames left 97.099%, 97.167%, and 95.785
 weakness even though most unmasked frame labels stayed stable. Agreement and spell counts are
 structural diagnostics only, not accuracy estimates or tuning targets. The full report is local at
 `%TEMP%\mtah2027-stress-test-m6\stress_report.json`.
+
+## Milestone 7: stoppage evidence during ball gaps
+
+The natural missing-ball spans are long and clustered, so interpolating a straight ball path would
+affect very few frames and risks inventing ball locations. The dead-ball decoder now uses a
+player-motion cue during missing-ball frames. The stoppage cue requires an all-player median speed
+at or below 0.5 m/s, at least 65% of tracked players below 0.5 m/s, and at least six visible players from
+each team, supported by 35 qualifying frames in a 50-frame window. It votes only on a frame that
+also meets the stillness condition. A separate restart cue requires sustained higher player motion
+(10 of 15 frames) to suppress `D` and resume the prior H/A state through the gap. Both cues are
+evaluated separately within each graded half so pre-kickoff stillness cannot bleed into the scored
+window. A set-piece tag adds only a small corroborating weight after physical stop evidence is
+present. Ball absence or a tag alone still cannot trigger `D`.
+
+The decoder reports the new cue counts. Ten synthetic checks pass, including active movement in a
+ball gap, a sustained stop followed by resumed movement, and isolation of pre-kickoff inactivity.
+The regenerated 199,319-row candidate passed format validation. The dropout diagnostics showed
+94.967% to 98.562% agreement under random masking and 96.481% to 97.545% under burst masking on unmasked
+graded frames. Live-spell counts still move under masking, so long gaps remain a material
+uncertainty. Outputs are in `%TEMP%\mtah2027-player-gap-stoppage-m7` and
+`%TEMP%\mtah2027-stress-test-m7`; only aggregate diagnostics are recorded here. These are
+structural checks, not a measure of `spellF1`, and no answer-key labels or scores were used.
