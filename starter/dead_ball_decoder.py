@@ -2,7 +2,8 @@
 
 Dead-ball evidence comes from persistent out-of-pitch tracking, sustained low ball movement,
 player movement during ball gaps, and weak corroboration from automatic set-piece tags. A tag
-interval alone never labels a frame as dead. Outputs are written outside the repository by default.
+interval alone never labels a frame as dead. A supported H/A switch across a fully ambiguous,
+no-D ball gap is placed at the gap midpoint. Outputs are written outside the repository by default.
 """
 
 import argparse
@@ -235,6 +236,66 @@ def viterbi_three_state(owner_evidence, dead_score, handover_penalty=10.0,
     return states
 
 
+def midpoint_missing_ball_handovers(states, owner_evidence, ball_seen,
+                                    support_window_frames=25,
+                                    minimum_support_frames=3,
+                                    evidence_threshold=0.05):
+    """Center a supported H/A switch inside a fully ambiguous ball-missing interval.
+
+    Viterbi's deterministic tie-break otherwise places a transition at one edge of a zero-evidence
+    gap. Move it to the temporal midpoint only when opposite team states bracket the gap, both
+    sides have independent owner evidence, and the candidate path contains no dead-ball frame.
+    """
+    states = np.asarray(states, dtype=np.int8)
+    owner_evidence = np.asarray(owner_evidence, dtype=np.float64)
+    ball_seen = np.asarray(ball_seen, dtype=np.bool_)
+    if states.ndim != 1 or owner_evidence.shape != states.shape or ball_seen.shape != states.shape:
+        raise ValueError("states, owner evidence and ball visibility must align")
+    if not np.all(np.isfinite(owner_evidence)):
+        raise ValueError("owner evidence must contain only finite values")
+
+    adjusted = states.copy()
+    missing = ~ball_seen
+    boundaries = np.diff(np.r_[False, missing, False].astype(np.int8))
+    starts = np.flatnonzero(boundaries == 1)
+    stops = np.flatnonzero(boundaries == -1)
+    adjusted_count = 0
+
+    for start, stop in zip(starts, stops):
+        if start == 0 or stop == len(states):
+            continue
+        if stop - start < 2:
+            continue
+        if np.any(states[start:stop] == DEAD):
+            continue
+        before, after = int(states[start - 1]), int(states[stop])
+        if before == after or before not in (HOME, AWAY) or after not in (HOME, AWAY):
+            continue
+
+        prior = owner_evidence[max(0, start - support_window_frames):start]
+        following = owner_evidence[stop:min(len(states), stop + support_window_frames)]
+        prior = prior[np.abs(prior) > evidence_threshold]
+        following = following[np.abs(following) > evidence_threshold]
+        if len(prior) < minimum_support_frames or len(following) < minimum_support_frames:
+            continue
+        prior_sign = 1.0 if before == HOME else -1.0
+        after_sign = 1.0 if after == HOME else -1.0
+        if (np.median(prior) * prior_sign <= evidence_threshold
+                or np.median(following) * after_sign <= evidence_threshold):
+            continue
+
+        midpoint = start + (stop - start) // 2
+        centered_gap = np.empty(stop - start, dtype=np.int8)
+        centered_gap[:midpoint - start] = before
+        centered_gap[midpoint - start:] = after
+        if np.array_equal(states[start:stop], centered_gap):
+            continue
+        adjusted[start:stop] = centered_gap
+        adjusted_count += 1
+
+    return adjusted, adjusted_count
+
+
 def state_summary(states, fps):
     counts = np.bincount(states, minlength=3)
     dead = states == DEAD
@@ -266,11 +327,15 @@ def decode(features, events, game=GAME, handover_penalty=10.0,
     owner_evidence = signed_evidence(features)
     labels = np.full(n_frames, "X", dtype="<U1")
     halves = []
+    midpointed_switches = 0
 
     for half, first, last in half_video_blocks(game):
         states = viterbi_three_state(
             owner_evidence[first:last + 1], dead_score[first:last + 1],
             handover_penalty, dead_transition_penalty)
+        states, adjusted_count = midpoint_missing_ball_handovers(
+            states, owner_evidence[first:last + 1], features["ball_seen"][first:last + 1])
+        midpointed_switches += adjusted_count
         labels[first:last + 1] = STATE_LABELS[states]
         halves.append({
             "half": half,
@@ -278,6 +343,7 @@ def decode(features, events, game=GAME, handover_penalty=10.0,
             "states": state_summary(states, GAMES[game]["fps"]),
             "slow_ball_confirmed_frames": int(np.sum(
                 slow_fraction[first:last + 1] >= slow_fraction_threshold)),
+            "midpointed_ball_gap_switches": adjusted_count,
             "mean_dead_score": float(np.mean(dead_score[first:last + 1])),
         })
 
@@ -286,6 +352,9 @@ def decode(features, events, game=GAME, handover_penalty=10.0,
         "set_piece_events_used_as_context": set_piece_count,
         "set_piece_context_frames": int(np.sum(set_piece_context)),
         "tag_policy": "context only; tag intervals alone do not emit D",
+        "gap_switch_policy": (
+            "midpoint only for supported, opposite H/A states bracketing a no-D ball gap"),
+        "midpointed_ball_gap_switches": midpointed_switches,
         "cue_frame_counts": cue_counts,
         "parameters": {
             "handover_penalty": handover_penalty,

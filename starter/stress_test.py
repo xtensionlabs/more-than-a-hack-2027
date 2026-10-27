@@ -20,6 +20,7 @@ from games import GAME, GAMES, half_video_blocks
 from starter.dead_ball_decoder import (
     decode as decode_with_dead_ball,
     load_features,
+    midpoint_missing_ball_handovers,
     rolling_count_by_half,
     stoppage_evidence,
     viterbi_three_state,
@@ -53,6 +54,47 @@ def synthetic_checks():
     if not (np.all(handover_states[:40] == HOME)
             and np.all(handover_states[40:] == AWAY)):
         raise AssertionError("sustained team handover failed")
+
+    gap_length = 100
+    gap_evidence = np.r_[np.full(40, 0.8), np.zeros(gap_length),
+                         np.full(40, -0.8)]
+    gap_ball_seen = np.r_[np.ones(40, dtype=np.bool_),
+                          np.zeros(gap_length, dtype=np.bool_),
+                          np.ones(40, dtype=np.bool_)]
+    gap_states = viterbi_three_state(gap_evidence, np.zeros(len(gap_evidence)))
+    centered_states, centered_count = midpoint_missing_ball_handovers(
+        gap_states, gap_evidence, gap_ball_seen)
+    gap_start = 40
+    expected_boundary = gap_start + gap_length // 2
+    changes = np.flatnonzero(centered_states[1:] != centered_states[:-1]) + 1
+    if centered_count != 1 or not np.array_equal(changes, [expected_boundary]):
+        raise AssertionError("supported handover was not centered in a neutral ball gap")
+
+    reverse_evidence = -gap_evidence
+    reverse_states = viterbi_three_state(
+        reverse_evidence, np.zeros(len(reverse_evidence)))
+    centered_reverse, reverse_count = midpoint_missing_ball_handovers(
+        reverse_states, reverse_evidence, gap_ball_seen)
+    reverse_changes = np.flatnonzero(
+        centered_reverse[1:] != centered_reverse[:-1]) + 1
+    if reverse_count != 1 or not np.array_equal(reverse_changes, [expected_boundary]):
+        raise AssertionError("reverse handover was not centered in a neutral ball gap")
+
+    dead_gap_states = gap_states.copy()
+    dead_gap_states[gap_start + 40:gap_start + 60] = DEAD
+    unchanged_states, unchanged_count = midpoint_missing_ball_handovers(
+        dead_gap_states, gap_evidence, gap_ball_seen)
+    if unchanged_count or not np.array_equal(unchanged_states, dead_gap_states):
+        raise AssertionError("a ball gap with a dead-ball state was midpoint-adjusted")
+
+    same_team_evidence = np.r_[np.full(40, 0.8), np.zeros(gap_length),
+                               np.full(40, 0.8)]
+    same_team_states = viterbi_three_state(
+        same_team_evidence, np.zeros(len(same_team_evidence)))
+    unchanged_states, unchanged_count = midpoint_missing_ball_handovers(
+        same_team_states, same_team_evidence, gap_ball_seen)
+    if unchanged_count or not np.array_equal(unchanged_states, same_team_states):
+        raise AssertionError("same-team continuity was changed across a ball gap")
 
     spike = np.full(80, 0.6)
     spike[40] = -0.99
@@ -132,6 +174,10 @@ def synthetic_checks():
 
     return {
         "sustained_handover": "pass",
+        "supported_switch_centered_in_ball_gap": "pass",
+        "reverse_switch_centered_in_ball_gap": "pass",
+        "dead_ball_gap_is_not_midpoint_adjusted": "pass",
+        "same_team_gap_is_unchanged": "pass",
         "one_frame_opponent_spike": "pass",
         "neutral_ball_gap": "pass",
         "tag_only_is_neutral": "pass",

@@ -136,7 +136,7 @@ starter/
   baseline.py               the reference baseline, numpy only
   feature_audit.py          label-free, team-level tracking features and diagnostics
   possession_decoder.py     sequence decoder for stable H/A possession candidates
-  dead_ball_decoder.py      stoppage evidence, including sustained player stops during ball gaps
+  dead_ball_decoder.py      stoppages and supported handover timing across ball gaps
   stress_test.py            synthetic and ball-dropout stability diagnostics
   load_atd.py               read the tracking and line it up with video frames
   load_smart_tagging.py     read the tactical tagging as video-frame intervals

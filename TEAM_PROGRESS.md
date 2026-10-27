@@ -168,3 +168,21 @@ graded frames. Live-spell counts still move under masking, so long gaps remain a
 uncertainty. Outputs are in `%TEMP%\mtah2027-player-gap-stoppage-m7` and
 `%TEMP%\mtah2027-stress-test-m7`; only aggregate diagnostics are recorded here. These are
 structural checks, not a measure of `spellF1`, and no answer-key labels or scores were used.
+
+## Milestone 8: place supported handovers inside ball gaps
+
+The Viterbi tie-break put a team switch at an edge of a neutral ball gap, with the selected edge
+depending on switch direction. `midpoint_missing_ball_handovers` now moves that boundary to
+the gap midpoint only when opposite H/A states bracket the gap, each side has at least three
+informative signed-evidence observations in its 25-frame support window, and the path contains no
+`D` frame. Same-team gaps, weakly supported switches, and gaps containing a stoppage are unchanged.
+The midpoint is a minimax timing choice when the gap itself contains no ownership evidence; it is
+not a claim that the turnover happened at that frame.
+
+Fourteen synthetic checks pass, covering both switch directions and the guards above. The
+regenerated candidate passed the 199,319-row format validator. On this unlabeled match, nine
+supported handovers were centered, changing 1,646 labels, all within ball-missing frames. Dropout
+agreement was 94.967% to 98.562% under random masking and 96.481% to 97.545% under burst masking on
+unmasked graded frames. These results do not estimate accuracy or `spellF1`; no public labels or
+scores were used. Candidate and diagnostics stay local under `%TEMP%\mtah2027-gap-handover-m8` and
+`%TEMP%\mtah2027-stress-test-m8`.
