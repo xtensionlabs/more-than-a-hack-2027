@@ -118,3 +118,31 @@ on the public answer key.
 Synthetic checks passed for tag-only input, missing-ball gaps, isolated out-of-pitch observations,
 and a sustained stoppage. The full tactical candidate passed format validation; its predictions and
 diagnostics remain in the local temporary output folder. No public answer-key score was used.
+
+## Milestone 6: label-free robustness checks
+
+`starter/stress_test.py` runs deterministic synthetic checks plus controlled masking of visible
+ball observations. It tests random dropout and contiguous gaps of different lengths, then reports
+agreement on unmasked graded frames and per-half H/A/D spell counts and deltas. The report contains
+no frame labels and is written outside the repository. These checks measure stability under
+missing data; they do not estimate competition accuracy.
+
+Run the extended feature audit first, then the stress harness. Keep the JSON report local:
+
+```powershell
+$env:MTAH_DATA_DIR = "D:\path\to\Challenge-Datasets"
+$featureOut = Join-Path $env:TEMP "mtah2027-feature-audit"
+$stressOut = Join-Path $env:TEMP "mtah2027-stress-test"
+python starter\feature_audit.py --out $featureOut
+python starter\stress_test.py --features (Join-Path $featureOut "tracking_features.npz") --data-dir $env:MTAH_DATA_DIR --out $stressOut
+```
+
+The deterministic run passed all seven synthetic checks. Ball visibility on scored frames was
+59.307% before artificial masking. Removing 10%, 25%, and 40% of visible observations at random
+left 99.590%, 97.733%, and 95.701% agreement on the remaining graded frames. Removing about 15%
+in contiguous bursts of 25, 75, and 125 frames left 97.099%, 97.167%, and 95.785% agreement. The
+125-frame burst case reduced predicted live spells by 26 in the first half and 29 in the second;
+40% random masking reduced them by 72 and 46. Long missing stretches therefore remain a material
+weakness even though most unmasked frame labels stayed stable. Agreement and spell counts are
+structural diagnostics only, not accuracy estimates or tuning targets. The full report is local at
+`%TEMP%\mtah2027-stress-test-m6\stress_report.json`.

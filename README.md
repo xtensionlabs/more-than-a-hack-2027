@@ -137,6 +137,7 @@ starter/
   feature_audit.py          label-free, team-level tracking features and diagnostics
   possession_decoder.py     sequence decoder for stable H/A possession candidates
   dead_ball_decoder.py      physical stoppage evidence and H/A/D sequence decoding
+  stress_test.py            synthetic and ball-dropout stability diagnostics
   load_atd.py               read the tracking and line it up with video frames
   load_smart_tagging.py     read the tactical tagging as video-frame intervals
   load_homography.py        read the homography; project pitch <-> pixels
