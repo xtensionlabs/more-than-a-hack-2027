@@ -1,0 +1,62 @@
+import numpy as np
+import pytest
+from pipeline import *
+
+
+def test_short_gap_filled_long_gap_kept():
+    x = np.array([0, 1, np.nan, np.nan, 4, 5] + [np.nan] * 30 + [40.0])
+    out = fill_short_gaps(x, max_gap=3)
+    assert out[2] == pytest.approx(2) and out[3] == pytest.approx(3)
+    assert np.isnan(out[10])                      # long gap untouched
+
+
+def test_viterbi_ignores_one_frame_flicker():
+    S = np.tile([1.0, -1.0, -5.0], (200, 1))       # clearly H
+    S[100] = [-1.0, 1.0, -5.0]                      # one-frame "A" glitch
+    assert (viterbi(S) == 0).all()
+
+
+def test_viterbi_follows_sustained_change():
+    S = np.vstack([np.tile([1, -1, -5.0], (100, 1)), np.tile([-1, 1, -5.0], (100, 1))])
+    path = viterbi(S)
+    assert (path[:95] == 0).all() and (path[-95:] == 1).all()
+
+
+def test_absorb_short_removes_tiny_runs():
+    path = np.array([0] * 100 + [1] * 5 + [0] * 100)
+    assert (absorb_short(path) == 0).all()
+
+
+def test_validate_catches_wrong_length_and_x_in_half():
+    good = np.array(list("HHAD" * 5))
+    validate(good, 20, [(1, 0, 19)])
+    with pytest.raises(AssertionError):
+        validate(good, 21)
+    bad = good.copy(); bad[3] = "X"
+    with pytest.raises(AssertionError):
+        validate(bad, 20, [(1, 0, 19)])
+
+
+def test_spell_f1_perfect_and_swapped():
+    ref = np.array(list("H" * 100 + "A" * 100))
+    assert approx_spell_f1(ref, ref) == 1.0
+    assert approx_spell_f1(np.where(ref == "H", "A", "H"), ref) == 0
+
+
+def test_absorb_short_runs_to_convergence():
+    path = np.array(([0] * 60 + [2] + [0] * 60 + [1] * 3 + [0] * 60) * 40)   # 80 tiny blips
+    out = absorb_short(path)
+    assert min(e - s for s, e, _v in runs(out)) >= 37                         # nothing short left
+
+
+def test_home_away_lean_sign_missing_ball_and_control_radius():
+    # two home players and two away players; the ball sits next to the first home player
+    xs = np.zeros((4, 4, 2))
+    xs[:, 0] = [10.0, 10.0]; xs[:, 1] = [40.0, 10.0]          # home
+    xs[:, 2] = [50.0, 50.0]; xs[:, 3] = [60.0, 50.0]          # away
+    home, away = np.array([0, 1]), np.array([2, 3])
+    bx = np.array([10.5, np.nan, 30.0, 50.5])                  # near home, missing, far from all, near away
+    by = np.array([10.0, np.nan, 30.0, 50.0])
+    lean = home_away_lean(bx, by, xs, home, away)
+    assert lean[0] > 0 and lean[3] < 0                         # sign: home positive, away negative
+    assert lean[1] == 0 and lean[2] == 0                       # missing ball / nobody within 3 m: no lean
