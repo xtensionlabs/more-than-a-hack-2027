@@ -1,3 +1,35 @@
+Our solution (Xtenders)
+
+Rule-based scoring plus a Viterbi decoder. No model is trained on labels. The dead-ball cues are in deadball.py; cleaning, the home/away lean and the decoder are in pipeline.py; run_full.py builds the submission file. TUNING_LOG.md records every experiment and the basis for each setting.
+
+Install
+
+Developed on Python 3.14 (Windows) and checked on 3.12.
+
+python -m venv .venv
+.venv\Scripts\activate            # Windows. On macOS/Linux: source .venv/bin/activate
+python -m pip install -r requirements-starter.txt
+python -m pip install -r requirements-solution.txt
+Data
+
+Unpack the organisers' data bundle so these four files are directly in data/tactical/: BAR-ATH_tactical_atd.txt, BAR-ATH_tactical_atd.xml, BAR-ATH_tactical_homography.csv, BAR-ATH_tactical_smart_tagging.xml. The data is not in this repository. The tactical video is not used.
+
+Regenerate the submission file
+python run_full.py --out submission/<team_name>.csv
+python evaluation/validate_submission.py submission/<team_name>.csv
+
+Expected output: 199,319 rows, 316 possessions of mean 15.1 s, with H 59,567, A 59,790, D 39,500 and X 40,462 frames. Runtime is a few minutes on a laptop.
+
+Tests
+python -m pytest -q
+
+With the tactical files present 24 tests pass and 2 are skipped (they need the broadcast file, which is optional). Without any data the tests that read it are skipped.
+
+Notes
+Nothing was tuned on the public 5 minutes of ground truth, and no label was set by hand.
+The 2,934 second-half frames before the kick-off are set to D from numbers the organisers publish.
+An AI assistant helped write and test the code; see the technical document.
+
 # More than a Hack 2027 — Phase 1: Ball Possession
 
 **Organised by [Metrica Sports](https://metrica-sports.com), [FC Barcelona](https://www.fcbarcelona.com)

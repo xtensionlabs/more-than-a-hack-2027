@@ -66,3 +66,23 @@ def test_end_to_end_runs_on_synthetic_data():
     lab = decode_frames(bx, by, sm, xy, home, away)
     assert len(lab) == n and set(np.unique(lab)) <= set("HAD")
     assert (lab == "H").mean() > 0.8
+
+
+def test_absorb_short_runs_to_convergence():
+    path = np.array(([0] * 60 + [2] + [0] * 60 + [1] * 3 + [0] * 60) * 40)
+    out = absorb_short(path)
+    assert min(e - s for s, e, _v in runs(out)) >= 37
+
+
+def test_home_away_lean_sign_missing_ball_and_control_radius():
+    xs = np.zeros((4, 4, 2))
+    xs[:, 0] = [10.0, 10.0]
+    xs[:, 1] = [40.0, 10.0]
+    xs[:, 2] = [50.0, 50.0]
+    xs[:, 3] = [60.0, 50.0]
+    home, away = np.array([0, 1]), np.array([2, 3])
+    bx = np.array([10.5, np.nan, 30.0, 50.5])
+    by = np.array([10.0, np.nan, 30.0, 50.0])
+    lean = home_away_lean(bx, by, xs, home, away)
+    assert lean[0] > 0 and lean[3] < 0
+    assert lean[1] == 0 and lean[2] == 0

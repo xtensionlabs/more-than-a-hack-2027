@@ -86,6 +86,23 @@ def nearest_dist(bx, by, xy, slots):
     return np.where(np.isnan(d), np.inf, d).min(axis=1)
 
 
+def home_away_lean(bx, by, xs, home, away, p=P):
+    """Return a signed possession lean from the nearest players to the ball.
+
+    Positive values favor home, negative values favor away, and zero means the ball is
+    missing or no player is close enough to claim control.
+    """
+    have = np.isfinite(bx) & np.isfinite(by)
+    bx0 = np.nan_to_num(bx, nan=-999)
+    by0 = np.nan_to_num(by, nan=-999)
+    d_home = np.where(have, nearest_dist(bx0, by0, xs, home), np.inf)
+    d_away = np.where(have, nearest_dist(bx0, by0, xs, away), np.inf)
+    controlled = have & (np.minimum(d_home, d_away) < p["ctrl_radius"])
+    with np.errstate(invalid="ignore"):
+        lean = np.clip((d_away - d_home) / p["tau"], -4, 4)
+    return np.where(controlled & np.isfinite(lean), lean, 0.0)
+
+
 def run_length_of(mask):
     s = pd.Series(mask.astype(int))
     grp = (s != s.shift()).cumsum()
@@ -215,23 +232,17 @@ def runs(a):
 
 
 def absorb_short(path, p=P):
-    """Merge possessions shorter than min_poss_secs and stoppages shorter than
-    min_dead_secs into the label before them.
-    CHANGE FROM THE GUIDE: the guide's loop stopped after 10 merges in total,
-    which is far too few for a whole half. This version repeats until nothing
-    is left to merge (capped for safety)."""
+    """Merge every short run into the preceding label until no short run remains."""
     path = path.copy()
-    for _ in range(100_000):
+    while True:
         changed = False
         for s, e, v in runs(path):
             lim = p["min_dead_secs"] if v == 2 else p["min_poss_secs"]
             if (e - s) < lim * FPS and s > 0:
                 path[s:e] = path[s - 1]
                 changed = True
-                break
         if not changed:
-            break
-    return path
+            return path
 
 
 def decode_half(S, p=P):

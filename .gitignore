@@ -65,3 +65,6 @@ env/
 
 # Match assets used locally are not part of the source repository.
 /Challenge-Datasets/
+submission/
+deadball_report/
+*.npy
