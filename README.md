@@ -1,231 +1,49 @@
-Our solution (Xtenders)
+# Xtenders — More Than a Hack 2027
 
-Rule-based scoring plus a Viterbi decoder. No model is trained on labels. The dead-ball cues are in deadball.py; cleaning, the home/away lean and the decoder are in pipeline.py; run_full.py builds the submission file. TUNING_LOG.md records every experiment and the basis for each setting.
+Xtenders is a three-member team. This repository contains our Initial Challenge possession entry, its frozen model, external-only training and benchmark scripts, and the submission format validator.
 
-Install
+The production runner uses automatic tactical tracking and team metadata. It does not read challenge video, Smart Tagging, or possession ground truth. The model was trained and tuned using licensed external match data only. The organizers' latest rules clarification takes precedence; see the technical report for the data boundary and validation limits.
 
-Developed on Python 3.14 (Windows) and checked on 3.12.
+## Generate and validate the submission
 
+Use Python and install the pinned dependencies:
+
+```powershell
 python -m venv .venv
-.venv\Scripts\activate            # Windows. On macOS/Linux: source .venv/bin/activate
-python -m pip install -r requirements-starter.txt
+.venv\Scripts\activate
 python -m pip install -r requirements-solution.txt
-Data
-
-Unpack the organisers' data bundle so these four files are directly in data/tactical/: BAR-ATH_tactical_atd.txt, BAR-ATH_tactical_atd.xml, BAR-ATH_tactical_homography.csv, BAR-ATH_tactical_smart_tagging.xml. The data is not in this repository. The tactical video is not used.
-
-Regenerate the submission file
-python run_full.py --out submission/<team_name>.csv
-python evaluation/validate_submission.py submission/<team_name>.csv
-
-Expected output: 199,319 rows, 316 possessions of mean 15.1 s, with H 59,567, A 59,790, D 39,500 and X 40,462 frames. Runtime is a few minutes on a laptop.
-
-Tests
-python -m pytest -q
-
-With the tactical files present 24 tests pass and 2 are skipped (they need the broadcast file, which is optional). Without any data the tests that read it are skipped.
-
-Notes
-Nothing was tuned on the public 5 minutes of ground truth, and no label was set by hand.
-The 2,934 second-half frames before the kick-off are set to D from numbers the organisers publish.
-An AI assistant helped write and test the code; see the technical document.
-
-# More than a Hack 2027 — Phase 1: Ball Possession
-
-**Organised by [Metrica Sports](https://metrica-sports.com), [FC Barcelona](https://www.fcbarcelona.com)
-and the [Mobile World Capital Barcelona](https://www.mwcbarcelona.com)**, at the Talent Arena in Barcelona.
-
-A football data challenge on real professional match data, open to analysts, data scientists and
-engineers. You are given one complete LaLiga match — two camera feeds, automatic tracking of every
-player and the ball, automatic tactical tagging, and the camera-to-pitch geometry — and one
-question to answer with it.
-
----
-
-## The task
-
-**For every frame of the match, say who has the ball.**
-
-```
-frame,label
-11185,A        away in possession, ball alive
-11186,A
-...
-18240,D        dead ball
-...
-18684,H        home in possession, ball alive
 ```
 
-That is the whole task. One CSV, one row per video frame, 199,319 rows. It is scored automatically
-against a private frame-by-frame ground truth, so there is a number at the end and no argument
-about it — no jury, and no presentation to argue from.
+Set `MTAH_DATA_DIR` to the root of the organizers' data bundle. The tactical ATD files must be under its `tactical` directory.
 
-The tracking is automatic and uncorrected: it has gaps and identity
-switches, and the ball itself is invisible on 41% of the frames you are scored on.
-
----
-
-## The challenge in one screen
-
-| |                                                                                                                           |
-|---|---------------------------------------------------------------------------------------------------------------------------|
-| **Input** | one full match: tactical video, broadcast video, automatic tracking **with the ball** for both, Smart Tagging, homography |
-| **Output** | `frame,label` CSV, 199,319 rows, labels `H` / `A` / `D` / `X`                                                             |
-| **Ranked on** | `spellF1` — how many of the match's real possessions you recovered as whole possessions                                   |
-| **Also reported** | `macroF1` — the per-frame view, and the first tie-break                                                                   |
-| **Baseline to beat** | `spellF1` **0.2433**, in this repository                                                                                  |
-| **Ground truth you get** | the first **5 minutes** of play — to check your pipeline, not to train on                                              |
-| **Ground truth you are scored on** | the full match, **private**                                                                                               |
-
-It is deliberately **not** a tracking challenge. The tracking, tagging and homography are given to
-you so that nobody has to rebuild detection, re-identification and camera calibration before
-getting to the actual question. See [CHALLENGE.md](CHALLENGE.md).
-
----
-
-## Try it right now
-
-The scorer, a 5-minute ground truth and four working baselines are in this repository. No
-enrolment, no download, no data:
-
-```bash
-pip install -r requirements.txt
-python evaluation/run_evaluation.py
+```powershell
+$env:MTAH_DATA_DIR = 'D:\path\to\Challenge-Datasets'
+python run_full.py --out submission/Xtenders.csv
+python evaluation/validate_submission.py submission/Xtenders.csv
 ```
 
-Scored on the public 5 minutes, not on the full match -- which is why the order below is not the
-order of the floor quoted above:
+The runner validates tracking continuity and team alignment, predicts each graded half independently, and writes `X` outside the graded windows. The output is deterministic for identical inputs and model weights. The validator checks row count, columns, frame order, and label values; it does not score predictions. Challenge data and generated submissions are ignored by Git.
 
-```
-scoreboard  gt/BAR-ATH_possession_gt_public.csv  199319 frames  7500 graded  21 gt segments
-ground truth has 17 possessions of mean 14.2 s  <- compare the poss and dur columns
+## Model provenance and reproduction
 
-rank  submission                macroF1  spellF1   poss     dur  
-----  ------------------------  -------  -------  -----  ------  
-   1  baseline_smooth125         0.5812   0.4242     16    18.5  
-   2  baseline_smooth50          0.6207   0.3256     26    10.8  
-   3  baseline_smooth25          0.6200   0.2868     36     7.6  
-   4  baseline_raw               0.5972   0.0378    131     2.0  
-```
+The frozen weights and provenance are in `starter/external_model.json`. The seven training matches and their machine-generated DFL possession codes come from the IDSSE dataset, licensed CC BY 4.0: [dataset record](https://doi.org/10.6084/m9.figshare.28196177), described in [Bassek et al. (2025)](https://www.nature.com/articles/s41597-025-04505-y). For the DFL code mapping, see the [Floodlight parser](https://github.com/floodlight-sports/floodlight/blob/main/floodlight/io/dfl.py).
 
-Those four are **the same algorithm four times** — nearest tracked player to the ball, then a
-majority vote over a window. Only the window changes. `macroF1` barely moves; `spellF1` moves by a
-factor of eleven. That disagreement is the whole point of the metric, and
-[EVALUATION.md](EVALUATION.md) explains it.
+To refit and regenerate the external validation report, download the seven licensed match-information and position XML files, then run:
 
-Once you have the data, regenerate them yourself and go further:
-
-```bash
-python starter/baseline.py                              # rebuild the four baselines
-python evaluation/validate_submission.py <your>.csv     # before every submission
+```powershell
+python starter/train_external_model.py `
+  --data-dir 'D:\path\to\idsse-matches' `
+  --out "$env:TEMP\mtah2027-model-build" `
+  --cache-dir "$env:TEMP\mtah2027-feature-cache"
 ```
 
-**Validate every file before you submit it.** `validate_submission.py` runs exactly the checks the
-official scorer runs, and a file that fails them is dropped from the board with a one-line reason.
-It takes two seconds and it is the single most common way a good entry scores nothing.
+The training script reads external matches only. To reproduce the model-versus-nearest-player comparison on the same external data:
 
----
-
-## Getting the data
-
-The match assets are released to enrolled participants who have accepted the terms of use.
-
-1. Enrol: **[More than A Hack 2027](https://landing.mobileworldcapital.com/more-than-a-hack-2027)**
-2. Read and sign the terms and conditions in the registration form
-3. You receive a download link.
-4. Unpack it into `./data`, or point `MTAH_DATA_DIR` at wherever you put it.
-
-Full description of every asset and how the frames line up: **[DATA.md](DATA.md)**.
-
----
-
-## Read these, in this order
-
-| | |
-|---|---|
-| **[CHALLENGE.md](CHALLENGE.md)** | the problem, the four labels, what counts as possession |
-| **[DATA.md](DATA.md)** | every provided asset, its format, and the frame alignment |
-| **[EVALUATION.md](EVALUATION.md)** | how you are scored, and why — read before optimising anything |
-| **[SUBMISSION.md](SUBMISSION.md)** | the file contract, the three deliverables, how to submit |
-| **[RULES.md](RULES.md)** | what you may and may not do |
-| **[FAQ.md](FAQ.md)** | |
-| **[OVERVIEW.md](OVERVIEW.md)** | the competition as a whole — context, why the 2027 format changed, the calendar |
-
-
----
-
-## What is in this repository
-
-```
-games.py                    per-match constants, asset paths and the frame alignment
-evaluation/
-  possession_metrics.py     the metric library — every number on the board is defined here
-  run_evaluation.py         the scorer. This exact file produces the official result
-  validate_submission.py    check a file before you send it
-  gt/                       the public 5-minute ground truth
-  results/                  the four baselines; put your submissions here
-starter/
-  baseline.py               the reference baseline, numpy only
-  feature_audit.py          label-free, team-level tracking features and diagnostics
-  possession_decoder.py     sequence decoder for stable H/A possession candidates
-  dead_ball_decoder.py      stoppages and supported handover timing across ball gaps
-  stress_test.py            synthetic and ball-dropout stability diagnostics
-  load_atd.py               read the tracking and line it up with video frames
-  load_smart_tagging.py     read the tactical tagging as video-frame intervals
-  load_homography.py        read the homography; project pitch <-> pixels
-  utils.py                  pitch plotting for the notebooks
-  01_smart_tagging.ipynb    guided tour of the tactical tagging
-  02_tracking_atd.ipynb     guided tour of the tracking data, with plots
-  03_first_submission.ipynb data in, scored submission out — start here
-data/                       unpack the downloaded match assets here. Empty in a fresh clone
-TEAM_PROGRESS.md            team runbook for data handling and baseline reproduction
+```powershell
+python starter/compare_external_baseline.py `
+  --data-dir 'D:\path\to\idsse-matches' `
+  --cache-dir "$env:TEMP\mtah2027-feature-cache" `
+  --out "$env:TEMP\mtah2027-external-comparison.json"
 ```
 
-The scorer you run locally is the scorer that decides the competition. If it scores on your
-machine, it scores the same way on ours.
-
----
-
-## Requirements
-
-**Python 3.8 or newer.** The evaluation needs `numpy` and `pandas` and nothing else; it is tested
-under 3.8 and 3.11 and produces identical output under both. `starter/baseline.py` needs nothing
-more either — you can reach a scored submission without installing anything else.
-
-The notebooks additionally want `kloppy` and `matplotlib` (`requirements-starter.txt`), and
-**Python 3.9+ is recommended for those**: on Windows, installing Jupyter under 3.8 hits a
-`pywinpty` build failure that has nothing to do with this repository.
-
----
-
-## Timeline
-
-| |                |
-|---|----------------|
-| registration opens | **October 1, 2026** |
-| data released | **October 20, 2026** |
-| submission deadline | **November 17, 2026** |
-| results announced | **Before November 26, 2026**      |
-
----
-
-## Questions
-
-Open an issue for anything about the data, the metrics or the documentation — corrections are
-genuinely useful, and a fix that helps you helps everyone equally. For enrolment and the terms of
-use: **hackathon.talentarena@mobileworldcapital.com**.
-
-## Licence and citation
-
-The code and documentation in this repository are released under the MIT Licence — see
-[LICENSE](LICENSE). **The match data is not covered by it**: it is separately licensed for this
-competition only, under the terms you accept at enrolment.
-
-```bibtex
-@misc{mtah2027,
-  title  = {More than a Hack 2027: Phase 1 - Ball Possession},
-  author = {Metrica Sports and FC Barcelona Innovation Hub},
-  year   = {2027},
-  url    = {https://github.com/metrica-sports/more-than-a-hack-2027}
-}
-```
+See the team-named [technical report](Xtenders.pdf) for the method, results, compliance boundary, and limitations. `Xtenders.md` is the editable source for that PDF. External results show improvement over a simple nearest-player reference; they do not establish a ranking against other teams.

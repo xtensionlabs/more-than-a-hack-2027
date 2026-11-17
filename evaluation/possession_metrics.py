@@ -22,8 +22,8 @@ magnitude too narrow.
 
 Usage:
     import possession_metrics as pm
-    gt = pm.label_codes(pm.read_label_csv("gt/BAR-ATH_possession_gt.csv"))
-    pred = pm.label_codes(pm.read_label_csv("results/mine.csv"))
+    gt = pm.label_codes(pm.read_label_csv("authorized_reference.csv"))
+    pred = pm.label_codes(pm.read_label_csv("submission.csv"))
     print(pm.evaluate(gt, pred)["macro_f1"])
 """
 

@@ -1,15 +1,10 @@
-SCOPE OF THIS LICENCE
----------------------
+SCOPE
+-----
 
-The MIT Licence below covers the contents of this repository only: the source code, the
-documentation, and the public 5-minute ground truth in evaluation/gt/.
-
-It does NOT cover the match data — the videos, the tracking data, the Smart Tagging and the
-homography. Those assets are separately licensed for this competition only, under the terms you
-accept at enrolment, and nothing in the licence below grants any right to use or redistribute
-them. See DATA.md and RULES.md.
-
----
+The MIT License below applies to the source code and documentation in this repository. It does
+not grant rights to the organizers' challenge assets, which are governed by the competition terms.
+The external IDSSE dataset is licensed separately under CC BY 4.0 and is cited in README.md,
+Xtenders.md, and the model provenance.
 
 MIT License
 

@@ -1,17 +1,13 @@
-"""Check a submission file before you send it. No ground truth needed.
+"""Check a submission file's format and contents. No ground truth needed.
 
-Run this on every file you are about to submit. It applies exactly the same validation the
-official scorer applies, so a file that passes here will not be rejected there -- and a file that
-fails here would have been silently dropped from the board with a one-line reason nobody would
-have read in time.
+Run this before submission to catch common format errors. This local validator checks the output
+contract; it does not guarantee acceptance by the official submission system.
 
     python evaluation/validate_submission.py my_submission.csv
     python evaluation/validate_submission.py my_submission.csv --rows 199319
 
-On success it also prints what the file actually says -- label counts, how many possessions it
-reports and how long they are. That second half is worth reading. A file can be perfectly valid
-and still claim the match had 900 possessions of 5 seconds each, and the format checker is the
-earliest place you can notice.
+On success it prints row count, label counts, and a basic possession summary. It does not measure
+prediction accuracy.
 """
 
 import argparse
@@ -66,7 +62,7 @@ if __name__ == '__main__':
     if reason:
         print("FAIL  {}".format(os.path.basename(args.submission)))
         print("      {}".format(reason))
-        print("\nSee SUBMISSION.md for the contract. The usual causes are an off-by-one at the "
+        print("\nSee README.md for the output command and format. The usual causes are an off-by-one at the "
               "start or end of\nthe file, a missing header, and blank cells where the system had "
               "no answer -- write X instead.")
         sys.exit(1)
@@ -85,5 +81,5 @@ if __name__ == '__main__':
     if int(np.sum(codes == pm.X)):
         print("      (counted with each X as a gap; the scorer bridges abstentions inside a real")
         print("       possession, so its count can be lower than this one)")
-    print("\nValid. Note this checks the format only -- it says nothing about whether the labels "
-          "are right.\nScore it against the public ground truth with run_evaluation.py.")
+    print("\nValid. This checks the submission format only. It does not compare labels with "
+          "the provided video or any ground truth.")
