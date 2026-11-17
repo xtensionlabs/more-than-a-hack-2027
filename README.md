@@ -26,7 +26,7 @@ The runner validates tracking continuity and team alignment, predicts each grade
 
 ## Model provenance and reproduction
 
-The frozen weights and provenance are in `starter/external_model.json`. The seven training matches and their machine-generated DFL possession codes come from the IDSSE dataset, licensed CC BY 4.0: [dataset record](https://doi.org/10.6084/m9.figshare.28196177), described in [Bassek et al. (2025)](https://www.nature.com/articles/s41597-025-04505-y). For the DFL code mapping, see the [Floodlight parser](https://github.com/floodlight-sports/floodlight/blob/main/floodlight/io/dfl.py).
+The frozen weights and provenance are in `starter/external_model.json`. The seven training matches and their framewise DFL `BallStatus`/`BallPossession` fields come from the IDSSE dataset, licensed CC BY 4.0: [dataset record](https://doi.org/10.6084/m9.figshare.28196177), described in [Bassek et al. (2025)](https://www.nature.com/articles/s41597-025-04505-y). The source paper does not identify individual annotators for those fields; the technical report records that limitation. For the DFL code mapping, see the [Floodlight parser](https://github.com/floodlight-sports/floodlight/blob/main/floodlight/io/dfl.py).
 
 To refit and regenerate the external validation report, download the seven licensed match-information and position XML files, then run:
 
